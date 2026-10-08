@@ -24,5 +24,5 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 IDENTITY="Snip Local Signing"
 security find-certificate -c "$IDENTITY" >/dev/null 2>&1 || IDENTITY="-"
-codesign --force --sign "$IDENTITY" "$APP" 2>/dev/null || { echo "Signing with \"$IDENTITY\" failed, using ad-hoc"; codesign --force --sign - "$APP"; }
+codesign --force --options runtime --sign "$IDENTITY" "$APP" 2>/dev/null || { echo "Signing with \"$IDENTITY\" failed, using ad-hoc"; codesign --force --options runtime --sign - "$APP"; }
 echo "Built $APP"
