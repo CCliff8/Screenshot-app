@@ -13,7 +13,7 @@ Press a shortcut, drag over the part of the screen you want, and the capture is 
 - **Screenshots.** Select an area, or grab the whole display under your mouse. Plays a shutter sound (can be turned off).
 - **Screen recordings.** Record an area or the full screen to `.mp4`, with pause and resume. A small control bar floats on screen while you record; it isn't captured in the video.
 - **Editor.** Pen, highlighter, eraser, colors, line width, undo/redo, copy, save and delete.
-- **Gallery.** All your screenshots and recordings in one window.
+- **Gallery.** All your screenshots and recordings in one window. Drag over thumbnails to select them, or ⌘-click to pick individual ones, then delete them together.
 - **Settings.** Rebind every shortcut and switch sounds on or off (**⌘,**).
 
 Captures are saved to `~/Pictures/Screenshots/`.

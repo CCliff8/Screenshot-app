@@ -22,27 +22,43 @@ struct GalleryView: View {
     @ObservedObject private var settings = Settings.shared
     @State private var shots: [Shot] = []
     @State private var recording = false
+    @State private var picked: Set<URL> = []
+    @State private var frames: [URL: CGRect] = [:]
+    @State private var marquee: CGRect?
+    @State private var baseSelection: Set<URL> = []
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Screenshots").font(.title2.weight(.semibold))
+                Text(picked.isEmpty ? "Screenshots" : "\(picked.count) selected").font(.title2.weight(.semibold))
                 Spacer()
-                Button {
-                    Task { await CaptureController.shared.start() }
-                } label: {
-                    Label("New Screenshot", systemImage: "viewfinder")
+                if !picked.isEmpty {
+                    if picked.count < shots.count {
+                        Button("Select All") { picked = Set(shots.map(\.url)) }
+                    }
+                    Button("Clear") { picked = [] }
+                        .keyboardShortcut(.cancelAction)
+                    Button(role: .destructive) { trashPicked() } label: { Label("Delete", systemImage: "trash") }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .keyboardShortcut(.delete, modifiers: [])
+                } else {
+                    Button {
+                        Task { await CaptureController.shared.start() }
+                    } label: {
+                        Label("New Screenshot", systemImage: "viewfinder")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button {
+                        (NSApp.delegate as? AppDelegate)?.toggleRecording()
+                    } label: {
+                        Label(recording ? "Stop Recording" : "Record Screen", systemImage: recording ? "stop.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(recording ? .red : nil)
+                    Button { (NSApp.delegate as? AppDelegate)?.openSettings() } label: { Image(systemName: "gearshape") }
+                        .help("Settings")
                 }
-                .buttonStyle(.borderedProminent)
-                Button {
-                    (NSApp.delegate as? AppDelegate)?.toggleRecording()
-                } label: {
-                    Label(recording ? "Stop Recording" : "Record Screen", systemImage: recording ? "stop.circle.fill" : "record.circle")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(recording ? .red : nil)
-                Button { (NSApp.delegate as? AppDelegate)?.openSettings() } label: { Image(systemName: "gearshape") }
-                    .help("Settings")
             }
             .padding(14)
             Divider()
@@ -54,11 +70,22 @@ struct GalleryView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                GeometryReader { viewport in
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 14)], spacing: 14) {
                         ForEach(shots) { shot in
-                            Thumb(shot: shot)
-                                .onTapGesture { onOpen(shot) }
+                            Thumb(shot: shot, isPicked: picked.contains(shot.url))
+                                .background(GeometryReader { g in
+                                    Color.clear.preference(key: FramesKey.self, value: [shot.url: g.frame(in: .named("grid"))])
+                                })
+                                .onTapGesture {
+                                    if NSEvent.modifierFlags.contains(.command) {
+                                        if !picked.insert(shot.url).inserted { picked.remove(shot.url) }
+                                    } else {
+                                        picked = []
+                                        onOpen(shot)
+                                    }
+                                }
                                 .contextMenu {
                                     Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
                                     Button("Move to Trash", role: .destructive) { trash(shot) }
@@ -66,6 +93,34 @@ struct GalleryView: View {
                         }
                     }
                     .padding(14)
+                    .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .top)
+                    .contentShape(Rectangle())  // so a drag can start on empty space too
+                    .coordinateSpace(name: "grid")
+                    .onPreferenceChange(FramesKey.self) { frames = $0 }
+                    .overlay {
+                        if let m = marquee {
+                            Rectangle().fill(Color.accentColor.opacity(0.15))
+                                .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1))
+                                .frame(width: m.width, height: m.height)
+                                .position(x: m.midX, y: m.midY)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 4, coordinateSpace: .named("grid"))
+                            .onChanged { v in
+                                if marquee == nil {
+                                    baseSelection = NSEvent.modifierFlags.contains(.command) ? picked : []
+                                }
+                                let r = CGRect(x: min(v.startLocation.x, v.location.x), y: min(v.startLocation.y, v.location.y),
+                                               width: abs(v.location.x - v.startLocation.x), height: abs(v.location.y - v.startLocation.y))
+                                marquee = r
+                                picked = baseSelection.union(frames.filter { $0.value.intersects(r) }.keys)
+                            }
+                            .onEnded { _ in marquee = nil }
+                    )
+                }
+                .onTapGesture { picked = [] }  // click on empty space
                 }
             }
         }
@@ -83,10 +138,22 @@ struct GalleryView: View {
         try? FileManager.default.trashItem(at: shot.url, resultingItemURL: nil)
         reload()
     }
+
+    private func trashPicked() {
+        for url in picked { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+        picked = []
+        reload()
+    }
+}
+
+private struct FramesKey: PreferenceKey {
+    static var defaultValue: [URL: CGRect] = [:]
+    static func reduce(value: inout [URL: CGRect], nextValue: () -> [URL: CGRect]) { value.merge(nextValue()) { $1 } }
 }
 
 struct Thumb: View {
     let shot: Shot
+    var isPicked = false
     @State private var image: CGImage?
     @State private var hovering = false
 
@@ -96,13 +163,22 @@ struct Thumb: View {
             if let image {
                 Image(decorative: image, scale: 1).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 8))
             }
+            if isPicked {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 22))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.white, Color.accentColor)
+                    .shadow(radius: 2)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(8)
+            }
             if shot.isVideo {
                 Image(systemName: "play.circle.fill").font(.system(size: 40)).foregroundStyle(.white)
                     .shadow(radius: 4)
             }
         }
         .frame(height: 150)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(hovering ? Color.accentColor : .clear, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(hovering || isPicked ? Color.accentColor : .clear, lineWidth: isPicked ? 3 : 2))
         .onHover { hovering = $0 }
         .task(id: shot.date) {
             let url = shot.url
