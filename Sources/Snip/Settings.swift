@@ -87,6 +87,9 @@ enum ShortcutAction: UInt32, CaseIterable {
 final class Settings: ObservableObject {
     static let shared = Settings()
     @Published private(set) var shortcuts: [ShortcutAction: Shortcut] = [:]
+    @Published var soundEnabled: Bool = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(soundEnabled, forKey: "soundEnabled") }
+    }
 
     private init() {
         for a in ShortcutAction.allCases {
@@ -124,10 +127,30 @@ final class Settings: ObservableObject {
     }
 }
 
+/// Plays Snip's feedback sounds, unless they're turned off in Settings.
+enum Sound {
+    private static let shutter = NSSound(
+        contentsOfFile: "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Shutter.aif",
+        byReference: true)
+
+    static func screenshot() {
+        guard Settings.shared.soundEnabled else { return }
+        (shutter ?? NSSound(named: "Pop"))?.play()
+    }
+
+    static func recordingSaved() {
+        guard Settings.shared.soundEnabled else { return }
+        NSSound(named: "Pop")?.play()
+    }
+}
+
 struct SettingsView: View {
+    @ObservedObject private var settings = Settings.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             ForEach(ShortcutAction.allCases, id: \.self) { ShortcutRow(action: $0) }
+            Toggle("Play sounds (camera shutter on screenshots)", isOn: $settings.soundEnabled)
             Text("Click a button, then press the keys you want. Include ⌃, ⌥ or ⌘. Esc cancels.\nFull-screen shortcuts capture the display under your mouse instantly, with no selection step.")
                 .font(.callout).foregroundStyle(.secondary)
         }

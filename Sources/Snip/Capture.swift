@@ -211,7 +211,7 @@ final class CaptureController {
             guard let cropped = image.cropping(to: px) else { return }
             Store.copyToClipboard(cropped)
             _ = Store.save(cropped)
-            NSSound(named: "Pop")?.play()
+            Sound.screenshot()
             restore?.makeKeyAndOrderFront(nil)
         case .recording:  // the app stays out of the way; the floating control bar takes over
             let topLeft = CGRect(x: rect.minX, y: viewSize.height - rect.maxY, width: rect.width, height: rect.height)

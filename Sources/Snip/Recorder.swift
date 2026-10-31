@@ -187,7 +187,7 @@ final class RecordingController: NSObject, ObservableObject, SCStreamDelegate {
         self.url = nil
         NotificationCenter.default.post(name: .screenshotsChanged, object: nil)
         guard ok, let url else { teardown(); state = .idle; restoreWindow(); return }
-        NSSound(named: "Pop")?.play()
+        Sound.recordingSaved()
         state = .saved(url)
         restoreWindow()
         try? await Task.sleep(for: .seconds(5))
