@@ -35,13 +35,11 @@ struct GalleryView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 Button {
-                    Task {
-                        if recording { await RecordingController.shared.stop() }
-                        else { await CaptureController.shared.start(mode: .recording) }
-                    }
+                    (NSApp.delegate as? AppDelegate)?.toggleRecording()
                 } label: {
                     Label(recording ? "Stop Recording" : "Record Screen", systemImage: recording ? "stop.circle.fill" : "record.circle")
                 }
+                .buttonStyle(.borderedProminent)
                 .tint(recording ? .red : nil)
                 Button { (NSApp.delegate as? AppDelegate)?.openSettings() } label: { Image(systemName: "gearshape") }
                     .help("Settings")

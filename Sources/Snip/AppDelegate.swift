@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var captureItem: NSMenuItem!
     private var recordItem: NSMenuItem!
+    private var fullCaptureItem: NSMenuItem!
+    private var fullRecordItem: NSMenuItem!
     private var statusMenu: NSMenu!
     private var timer: Timer?
 
@@ -19,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buildWindow()
         HotKey.shared.actions[ShortcutAction.screenshot.rawValue] = { [weak self] in self?.capture() }
         HotKey.shared.actions[ShortcutAction.recording.rawValue] = { [weak self] in self?.toggleRecording() }
+        HotKey.shared.actions[ShortcutAction.fullScreenshot.rawValue] = { [weak self] in self?.captureFull() }
+        HotKey.shared.actions[ShortcutAction.fullRecording.rawValue] = { [weak self] in self?.toggleFullRecording() }
         Settings.shared.registerAll()
         updateTitles()
         NotificationCenter.default.addObserver(forName: .shortcutChanged, object: nil, queue: .main) { [weak self] _ in
@@ -56,8 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         captureItem = item("Take Screenshot", #selector(capture))
         menu.addItem(captureItem)
+        fullCaptureItem = item("Full-Screen Screenshot", #selector(captureFull))
+        menu.addItem(fullCaptureItem)
         recordItem = item("Record Screen", #selector(toggleRecording))
         menu.addItem(recordItem)
+        fullRecordItem = item("Record Full Screen", #selector(toggleFullRecording))
+        menu.addItem(fullRecordItem)
         menu.addItem(item("Open Snip", #selector(showWindow)))
         menu.addItem(item("Settings…", #selector(openSettings)))
         menu.addItem(.separator())
@@ -113,12 +121,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateTitles() {
         captureItem.title = "Take Screenshot  (\(Settings.shared.shortcut(.screenshot).display))"
         recordItem.title = "Record Screen  (\(Settings.shared.shortcut(.recording).display))"
+        fullCaptureItem.title = "Full-Screen Screenshot  (\(Settings.shared.shortcut(.fullScreenshot).display))"
+        fullRecordItem.title = "Record Full Screen  (\(Settings.shared.shortcut(.fullRecording).display))"
     }
 
-    @objc func toggleRecording() {
+    @objc func toggleRecording() { runRecordingToggle(full: false) }
+    @objc func toggleFullRecording() { runRecordingToggle(full: true) }
+    @objc func captureFull() { Task { @MainActor in await CaptureController.shared.start(fullScreen: true) } }
+
+    func runRecordingToggle(full: Bool) {
         Task { @MainActor in
-            if RecordingController.shared.isRecording { await RecordingController.shared.stop() }
-            else { await CaptureController.shared.start(mode: .recording) }
+            let rec = RecordingController.shared
+            switch rec.state {
+            case .recording, .paused: await rec.stop()
+            case .countdown: rec.cancelCountdown()
+            default: await CaptureController.shared.start(mode: .recording, fullScreen: full)
+            }
         }
     }
 
@@ -126,14 +144,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func recordingChanged() {
         let button = statusItem.button
         timer?.invalidate()
-        if RecordingController.shared.isRecording {
+        let rc = RecordingController.shared
+        if rc.isRecording {
             statusItem.menu = nil
             button?.target = self
             button?.action = #selector(toggleRecording)
-            button?.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Stop recording")
-            button?.contentTintColor = .systemRed
+            let paused = RecordingController.shared.state == .paused
+            button?.image = NSImage(systemSymbolName: paused ? "pause.circle.fill" : "stop.circle.fill",
+                                    accessibilityDescription: "Stop recording")
+            button?.contentTintColor = paused ? .systemOrange : .systemRed
             let tick = { [weak self] in
-                let secs = Int(Date().timeIntervalSince(RecordingController.shared.startedAt))
+                let secs = Int(RecordingController.shared.elapsed)
                 self?.statusItem.button?.title = String(format: " %d:%02d", secs / 60, secs % 60)
             }
             tick()

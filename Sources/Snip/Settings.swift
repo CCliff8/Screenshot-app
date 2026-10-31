@@ -48,13 +48,39 @@ struct Shortcut: Codable, Equatable {
 }
 
 enum ShortcutAction: UInt32, CaseIterable {
-    case screenshot = 1, recording = 2
+    case screenshot = 1, recording = 2, fullScreenshot = 3, fullRecording = 4
 
-    var title: String { self == .screenshot ? "Screenshot shortcut" : "Screen recording shortcut" }
-    var storageKey: String { self == .screenshot ? "captureShortcut" : "recordShortcut" }
+    var title: String {
+        switch self {
+        case .screenshot: "Screenshot (select an area)"
+        case .recording: "Screen recording (select an area)"
+        case .fullScreenshot: "Full-screen screenshot"
+        case .fullRecording: "Full-screen recording"
+        }
+    }
+    var shortName: String {
+        switch self {
+        case .screenshot: "screenshots"
+        case .recording: "recording"
+        case .fullScreenshot: "full-screen screenshots"
+        case .fullRecording: "full-screen recording"
+        }
+    }
+    var storageKey: String {
+        switch self {
+        case .screenshot: "captureShortcut"
+        case .recording: "recordShortcut"
+        case .fullScreenshot: "fullScreenshotShortcut"
+        case .fullRecording: "fullRecordShortcut"
+        }
+    }
     var defaultShortcut: Shortcut {
-        self == .screenshot ? .default
-            : Shortcut(keyCode: kVK_ANSI_R, modifiers: controlKey | shiftKey, keyLabel: "R")
+        switch self {
+        case .screenshot: .default
+        case .recording: Shortcut(keyCode: kVK_ANSI_R, modifiers: controlKey | shiftKey, keyLabel: "R")
+        case .fullScreenshot: Shortcut(keyCode: kVK_ANSI_S, modifiers: controlKey | optionKey | shiftKey, keyLabel: "S")
+        case .fullRecording: Shortcut(keyCode: kVK_ANSI_R, modifiers: controlKey | optionKey | shiftKey, keyLabel: "R")
+        }
     }
 }
 
@@ -85,7 +111,7 @@ final class Settings: ObservableObject {
     /// Switches an action to a new shortcut. Returns an error message, or nil on success.
     func apply(_ new: Shortcut, for action: ShortcutAction) -> String? {
         if let other = ShortcutAction.allCases.first(where: { $0 != action && shortcut($0) == new }) {
-            return "\(new.display) is already used for \(other == .screenshot ? "screenshots" : "recording")."
+            return "\(new.display) is already used for \(other.shortName)."
         }
         guard HotKey.shared.register(new, id: action.rawValue) else {
             HotKey.shared.register(shortcut(action), id: action.rawValue)
@@ -102,7 +128,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             ForEach(ShortcutAction.allCases, id: \.self) { ShortcutRow(action: $0) }
-            Text("Click a button, then press the keys you want. Include ⌃, ⌥ or ⌘. Esc cancels.")
+            Text("Click a button, then press the keys you want. Include ⌃, ⌥ or ⌘. Esc cancels.\nFull-screen shortcuts capture the display under your mouse instantly, with no selection step.")
                 .font(.callout).foregroundStyle(.secondary)
         }
         .padding(24)

@@ -25,7 +25,9 @@ private final class OverlayView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: Crosshair.cursor) }
+    override func viewDidMoveToWindow() { window?.invalidateCursorRects(for: self) }
+    override func mouseMoved(with event: NSEvent) { Crosshair.cursor.set() }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
@@ -45,7 +47,7 @@ private final class OverlayView: NSView {
             if anchor == nil {
                 drawPill(mode == .recording
                          ? "Drag to select the area to record  ·  Return for full screen  ·  Esc to cancel"
-                         : "Drag to select an area  ·  Esc to cancel",
+                         : "Drag to select an area  ·  Return for full screen  ·  Esc to cancel",
                          at: NSPoint(x: bounds.midX, y: bounds.maxY - 70))
             }
         }
@@ -106,7 +108,7 @@ private final class OverlayView: NSView {
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { onFinish(nil) }  // esc
-        else if mode == .recording, event.keyCode == 36 || event.keyCode == 76 { onFinish(bounds) }  // return: full screen
+        else if event.keyCode == 36 || event.keyCode == 76 { onFinish(bounds) }  // return: full screen
     }
 }
 
@@ -120,8 +122,12 @@ final class CaptureController {
     private var filter: SCContentFilter?
     private var scale: CGFloat = 2
     private var mode: CaptureMode = .screenshot
+    private var screen: NSScreen?
+    private var hiddenWindow: NSWindow?
 
-    func start(mode: CaptureMode = .screenshot) async {
+    func start(mode: CaptureMode = .screenshot, fullScreen: Bool = false) async {
+        let st = RecordingController.shared.state
+        if case .countdown = st { return }
         guard !busy, overlay == nil, !RecordingController.shared.isRecording else { return }
         busy = true
         defer { busy = false }
@@ -146,7 +152,13 @@ final class CaptureController {
             self.filter = filter
             self.scale = scale
             self.mode = mode
-            present(image, on: screen, mode: mode)
+            self.screen = screen
+            if fullScreen {
+                hideMainWindow()
+                finish(NSRect(origin: .zero, size: screen.frame.size), viewSize: screen.frame.size)
+            } else {
+                present(image, on: screen, mode: mode)
+            }
         } catch {
             showPermissionAlert()
         }
@@ -167,17 +179,28 @@ final class CaptureController {
         window.contentView = view
         window.setFrame(screen.frame, display: true)
         overlay = window
+        hideMainWindow()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)
+        window.acceptsMouseMovedEvents = true
+        Crosshair.cursor.set()
+    }
+
+    /// Keeps the gallery out of the way during a capture; it comes back after a screenshot or cancel.
+    private func hideMainWindow() {
+        hiddenWindow = NSApp.windows.first { $0.title == "Snip" && $0.isVisible }
+        hiddenWindow?.orderOut(nil)
     }
 
     /// `rect` is in view points, origin bottom-left.
     private func finish(_ rect: NSRect?, viewSize: CGSize) {
         overlay?.orderOut(nil)
         overlay = nil
-        defer { image = nil; filter = nil }
-        guard let rect, let image, let filter else { return }
+        defer { image = nil; filter = nil; screen = nil }
+        let restore = hiddenWindow
+        hiddenWindow = nil
+        guard let rect, let image, let filter, let screen else { restore?.makeKeyAndOrderFront(nil); return }
 
         switch mode {
         case .screenshot:
@@ -189,10 +212,12 @@ final class CaptureController {
             Store.copyToClipboard(cropped)
             _ = Store.save(cropped)
             NSSound(named: "Pop")?.play()
-        case .recording:
+            restore?.makeKeyAndOrderFront(nil)
+        case .recording:  // the app stays out of the way; the floating control bar takes over
             let topLeft = CGRect(x: rect.minX, y: viewSize.height - rect.maxY, width: rect.width, height: rect.height)
             let scale = self.scale
-            Task { await RecordingController.shared.start(filter: filter, rect: topLeft, scale: scale) }
+            RecordingController.shared.windowToRestore = restore
+            Task { await RecordingController.shared.start(filter: filter, rect: topLeft, scale: scale, screen: screen) }
         }
     }
 
