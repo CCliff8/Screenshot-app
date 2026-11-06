@@ -9,6 +9,7 @@ extension Notification.Name {
     static let editorRedo = Notification.Name("snip.editorRedo")
     static let editorSave = Notification.Name("snip.editorSave")
     static let editorCopy = Notification.Name("snip.editorCopy")
+    static let screenshotCaptured = Notification.Name("snip.screenshotCaptured")
     static let recordingChanged = Notification.Name("snip.recordingChanged")
 }
 
@@ -55,6 +56,7 @@ enum Store {
         }
         guard write(image, to: url) else { return nil }
         NotificationCenter.default.post(name: .screenshotsChanged, object: nil)
+        NotificationCenter.default.post(name: .screenshotCaptured, object: url)
         return url
     }
 
@@ -94,5 +96,16 @@ enum Store {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setData(png, forType: .png)
+    }
+
+    /// Copies a file from the gallery: the image for screenshots, the file itself for videos.
+    static func copyFile(_ url: URL) {
+        if url.pathExtension.lowercased() == "mp4" {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.writeObjects([url as NSURL])
+        } else if let image = load(url) {
+            copyToClipboard(image)
+        }
     }
 }

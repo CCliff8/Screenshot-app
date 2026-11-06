@@ -7,11 +7,20 @@ struct RootView: View {
     var body: some View {
         if let shot = selected {
             EditorView(shot: shot) { selected = nil }.id(shot.id)
+                .onReceive(NotificationCenter.default.publisher(for: .screenshotCaptured)) { openCaptured($0) }
         } else {
             GalleryView { shot in
                 if shot.isVideo { NSWorkspace.shared.open(shot.url) } else { selected = shot }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .screenshotCaptured)) { openCaptured($0) }
         }
+    }
+
+    /// A fresh capture always shows up in the editor, replacing whatever was open.
+    private func openCaptured(_ note: Notification) {
+        guard let url = note.object as? URL else { return }
+        if selected != nil { NotificationCenter.default.post(name: .editorSave, object: nil) }  // keep pending edits
+        selected = Shot(url: url, date: Date())
     }
 }
 
@@ -87,6 +96,7 @@ struct GalleryView: View {
                                     }
                                 }
                                 .contextMenu {
+                                    Button("Copy") { Store.copyFile(shot.url) }
                                     Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
                                     Button("Move to Trash", role: .destructive) { trash(shot) }
                                 }
@@ -298,6 +308,7 @@ struct EditorView: View {
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { v in drag(to: CGPoint(x: v.location.x / scale, y: v.location.y / scale), scale: scale) }
             .onEnded { _ in endDrag() })
+        .contextMenu { Button("Copy") { copy() } }
         .frame(width: avail.width, height: avail.height)
     }
 
