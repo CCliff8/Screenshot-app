@@ -29,7 +29,19 @@ final class FrameWriter: NSObject, SCStreamOutput, @unchecked Sendable {
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: max(2_000_000, min(40_000_000, pixels * 4))],
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ],
+            AVVideoCompressionPropertiesKey: [
+                // ~0.15 bits per pixel per frame at 60 fps keeps text and edges crisp
+                AVVideoAverageBitRateKey: max(4_000_000, min(80_000_000, pixels * 9)),
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoMaxKeyFrameIntervalDurationKey: 1,
+                AVVideoAllowFrameReorderingKey: false,
+                AVVideoExpectedSourceFrameRateKey: 60,
+            ],
         ])
         input.expectsMediaDataInRealTime = true
         writer.add(input)
@@ -129,6 +141,8 @@ final class RecordingController: NSObject, ObservableObject, SCStreamDelegate {
             config.height = height
             config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
             config.showsCursor = true
+            config.queueDepth = 8
+            config.colorSpaceName = CGColorSpace.sRGB
             let s = SCStream(filter: filter, configuration: config, delegate: self)
             try s.addStreamOutput(writer, type: .screen, sampleHandlerQueue: writer.queue)
             try await s.startCapture()
